@@ -4,10 +4,11 @@ TARGET = main
 CROSS_COMPILE ?= arm-none-eabi-
 CC := $(CROSS_COMPILE)gcc
 CFLAGS = -fno-common -ffreestanding -O0 \
-         -gdwarf-2 -g3 -Wall -Werror \
+         -gdwarf-2 -g3 -Werror \
          -mcpu=cortex-m3 -mthumb \
          -Wl,-Tmain.ld -nostartfiles \
-         -DUSER_NAME=\"$(USER)\"
+         -DUSER_NAME=\"$(USER)\" \
+		 -g
 
 ARCH = CM3
 VENDOR = ST

@@ -3,11 +3,17 @@ QEMU_STM32 ?= ../qemu_stm32/arm-softmmu/qemu-system-arm
 qemu: $(OUTDIR)/$(TARGET).bin $(QEMU_STM32)
 	$(QEMU_STM32) -M stm32-p103 \
 		-monitor stdio \
-		-kernel $(OUTDIR)/$(TARGET).bin
+		-kernel $(OUTDIR)/$(TARGET).bin \
+		-semihosting
+
+qemuauto1:
+	bash emulate.sh build/main.bin
+	python log2grasp.py
+	../grasp_linux/grasp sched.grasp
 
 qemudbg: $(OUTDIR)/$(TARGET).bin $(QEMU_STM32)
 	$(QEMU_STM32) -M stm32-p103 \
-		-monitor stdio \
+		-monitor stdio -semihosting \
 		-gdb tcp::3333 -S \
 		-kernel $(OUTDIR)/$(TARGET).bin 2>&1>/dev/null & \
 	echo $$! > $(OUTDIR)/qemu_pid && \
