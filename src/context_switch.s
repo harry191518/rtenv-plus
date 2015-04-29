@@ -41,14 +41,17 @@ activate:
 	/* save kernel state */
 	mrs ip, psr
 	push {r4, r5, r6, r7, r8, r9, r10, r11, ip, lr}
-	
+
+    ldmia r0!, {r4, r5, r6, r7, r8, r9, r10, r11, lr}
+    ldmia r0!, {r7}
+    
 	/* switch to process stack pointer */
 	msr psp, r0
 	mov r0, #3
 	msr control, r0
 	
 	/* load user state */
-	pop {r4, r5, r6, r7, r8, r9, r10, r11, lr}
-	pop {r7}
+	//pop {r4, r5, r6, r7, r8, r9, r10, r11, lr}
+	//pop {r7}
 
 	bx lr
