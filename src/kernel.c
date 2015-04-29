@@ -20,6 +20,7 @@
 #include "romdev.h"
 #include "event-monitor.h"
 #include "romfs.h"
+#include "host.h"
 
 #define MAX_CMDNAME 19
 #define MAX_ARGC 19
@@ -33,10 +34,13 @@
 /*Global Variables*/
 char next_line[3] = {'\n','\r','\0'};
 size_t task_count = 0;
+size_t current_task = 0;
 char cmd[HISTORY_COUNT][CMDBUF_SIZE];
 int cur_his=0;
 int fdout;
 int fdin;
+int logfile = 0;
+unsigned int tick_count = 0;
 
 void check_keyword();
 void find_events();
@@ -52,6 +56,13 @@ void show_task_info(int argc, char *argv[]);
 void show_man_page(int argc, char *argv[]);
 void show_history(int argc, char *argv[]);
 void show_xxd(int argc, char *argv[]);
+int openfile(const char *pathname, int flags);
+int closefile(int fildes);
+int syscall(int number, ...) __attribute__((naked));
+int snprintf(char *buf, size_t size, const char *format, ...);
+unsigned int get_time();
+size_t writelog(int fildes, const void *buf, size_t nbyte);
+void writeTime(int count, char *s);
 
 /* Enumeration for command types. */
 enum {
@@ -112,6 +123,10 @@ void serialout(USART_TypeDef* uart, unsigned int intr)
 		interrupt_wait(intr);
 		USART_ITConfig(USART2, USART_IT_TXE, DISABLE);
 	}
+
+	char buf[128];
+	int len = snprintf(buf, 128, "task123 \n");
+	writelog(logfile, buf, len);
 }
 
 void serialin(USART_TypeDef* uart, unsigned int intr)
@@ -130,6 +145,10 @@ void serialin(USART_TypeDef* uart, unsigned int intr)
 			write(fd, &c, 1);
 		}
 	}
+
+	char buf[128];
+	int len = snprintf(buf, 128, "task456 \n");
+	writelog(logfile, buf, len);
 }
 
 void greeting()
@@ -523,6 +542,17 @@ void show_cmd_info(int argc, char* argv[])
 		write(fdout, cmd_data[i].description, strlen(cmd_data[i].description) + 1);
 		write(fdout, next_line, 3);
 	}
+
+    int handle;
+
+    handle = host_action(SYS_SYSTEM, "mkdir -p output");
+    handle = host_action(SYS_SYSTEM, "touch output/testlog");
+    handle = host_action(SYS_OPEN, "testlog", 8);
+
+    if(handle == -1)
+    {
+        ;
+    }
 }
 
 //echo
@@ -708,17 +738,28 @@ void show_xxd(int argc, char *argv[])
 
 void first()
 {
+    writeTime(current_task, "context-switch end:");
+    
 	if (!fork()) setpriority(0, 0), pathserver();
+    writeTime(current_task, "context-switch end:");
 	if (!fork()) setpriority(0, 0), romdev_driver();
+    writeTime(current_task, "context-switch end:");
 	if (!fork()) setpriority(0, 0), romfs_server();
+    writeTime(current_task, "context-switch end:");
 	if (!fork()) setpriority(0, 0), serialout(USART2, USART2_IRQn);
+    writeTime(current_task, "context-switch end:");
 	if (!fork()) setpriority(0, 0), serialin(USART2, USART2_IRQn);
+    writeTime(current_task, "context-switch end:");
 	if (!fork()) rs232_xmit_msg_task();
+    writeTime(current_task, "context-switch end:");
 	if (!fork()) setpriority(0, PRIORITY_DEFAULT - 10), serial_test_task();
+    writeTime(current_task, "context-switch end:");
 
 	setpriority(0, PRIORITY_LIMIT);
+    writeTime(current_task, "context-switch end:");
 
 	mount("/dev/rom0", "/", ROMFS_TYPE, 0);
+    writeTime(current_task, "context-switch end:");
 
 	while(1);
 }
@@ -755,14 +796,17 @@ int main()
 	struct memory_pool memory_pool;
 	struct event_monitor event_monitor;
 	//size_t task_count = 0;
-	size_t current_task = 0;
+	//size_t current_task = 0;
 	int i;
 	struct list *list;
 	struct task_control_block *task;
 	int timeup;
-	unsigned int tick_count = 0;
+	//unsigned int tick_count = 0;
+
+    logfile = openfile("log", 4);
 
 	SysTick_Config(configCPU_CLOCK_HZ / configTICK_RATE_HZ);
+    writeTime(current_task, "start:");
 
 	init_rs232();
 	__enable_irq();
@@ -800,9 +844,13 @@ int main()
 	task_count++;
 
 	while (1) {
+        writeTime(current_task, "context-switch start:");
+
 		tasks[current_task].stack = activate(tasks[current_task].stack);
 		tasks[current_task].status = TASK_READY;
 		timeup = 0;
+
+        //writeTime(current_task, "context-switch end:");
 
 		switch (tasks[current_task].stack->r7) {
 		case 0x1: /* fork */
@@ -961,6 +1009,7 @@ int main()
 				if (intr == SysTick_IRQn) {
 					/* Never disable timer. We need it for pre-emption */
 					timeup = 1;
+                    writeTime(current_task, "tick_count++:");
 					tick_count++;
 					event_monitor_release(&event_monitor, TIME_EVENT);
 				}
@@ -989,4 +1038,132 @@ int main()
 	}
 
 	return 0;
+}
+
+int _snprintf_int(int num, char *buf, int buf_size)
+{
+	int len = 1;
+	char *p;
+	int i = num < 0 ? -num : num;
+
+	for (; i >= 10; i /= 10, len++);
+
+	if (num < 0)
+		len++;
+
+	i = num;
+	p = buf + len - 1;
+	do {
+		if (p < buf + buf_size)
+			*p-- = '0' + i % 10;
+		i /= 10;
+	} while (i != 0);
+
+	if (num < 0)
+		*p = '-';
+    return len < buf_size ? len : buf_size;
+}
+
+int snprintf(char *buf, size_t size, const char *format, ...)
+{
+	va_list ap;
+	char *dest = buf;
+	char *last = buf + size;
+	char ch;
+
+	va_start(ap, format);
+	for (ch = *format++; dest < last && ch; ch = *format++) {
+		if (ch == '%') {
+			ch = *format++;
+			switch (ch) {
+			case 's' : {
+					char *str = va_arg(ap, char*);
+					/* strncpy */
+					while (dest < last) {
+						if ((*dest = *str++))
+							dest++;
+						else
+							break;
+					}
+				}
+				break;
+			case 'd' : {
+					int num = va_arg(ap, int);
+					dest += _snprintf_int(num, dest,
+					                      last - dest);
+				}
+				break;
+			case '%' :
+				*dest++ = ch;
+				break;
+			default :
+				return -1;
+			}
+		} else {
+			*dest++ = ch;
+		}
+	}
+	va_end(ap);
+
+	if (dest < last)
+		*dest = 0;
+	else
+		*--dest = 0;
+
+	return dest - buf;
+}
+
+int syscall(int number, ...)
+{
+	asm(
+	    "bkpt 0xAB \n"
+	    "bx   lr   \n"
+	);
+
+    return 0;
+}
+
+size_t writelog(int fildes, const void *buf, size_t nbyte)
+{
+	int argv[] = { fildes, (int) buf, nbyte };
+	return nbyte - syscall(0x05, argv);
+}
+
+unsigned int get_reload()
+{
+	return *(uint32_t *) 0xE000E014;
+}
+
+unsigned int get_current()
+{
+	return *(uint32_t *) 0xE000E018;
+}
+
+unsigned int get_time()
+{
+	static unsigned int const *reload = (void *) 0xE000E014;
+	static unsigned int const *current = (void *) 0xE000E018;
+	static const unsigned int scale = 1000000 / configTICK_RATE_HZ;
+					/* microsecond */
+
+	return tick_count * scale +
+          (*reload - *current) / (*reload / scale);
+}
+
+int openfile(const char *pathname, int flags)
+{
+	int argv[] = { (int) pathname, flags, strlen(pathname) };
+	return syscall(0x01, argv);
+}
+
+int closefile(int fildes)
+{
+	return syscall(0x02, &fildes);
+}
+
+void writeTime(int count, char *s)
+{
+	char buf[128];
+	int len = snprintf(buf, 128, "%d %s %d\n", count, s, get_time());
+	writelog(logfile, buf, len);
 }
