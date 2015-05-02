@@ -3,13 +3,15 @@
 	.fpu softvfp
 	.thumb
 
+.extern writeTime
 .global fork
 fork:
-	push {r7}
+	push {r7, lr}
 	mov r7, #0x1
+    bl writeTime
 	svc 0
 	nop
-	pop {r7}
+	pop {r7, pc}
 	bx lr
 .global getpid
 getpid:
