@@ -62,7 +62,9 @@ int syscall(int number, ...) __attribute__((naked));
 int snprintf(char *buf, size_t size, const char *format, ...);
 unsigned int get_time();
 size_t writelog(int fildes, const void *buf, size_t nbyte);
-void writeTime(int count, char *s);
+unsigned int get_current();
+//void writeTime(unsigned int count, char *s);
+void writeTime();
 
 /* Enumeration for command types. */
 enum {
@@ -105,6 +107,7 @@ struct task_control_block tasks[TASK_LIMIT];
 
 void serialout(USART_TypeDef* uart, unsigned int intr)
 {
+    //writeTime(current_task, "context-switch out1:");
 	int fd;
 	char c;
 	int doread = 1;
@@ -124,13 +127,12 @@ void serialout(USART_TypeDef* uart, unsigned int intr)
 		USART_ITConfig(USART2, USART_IT_TXE, DISABLE);
 	}
 
-	char buf[128];
-	int len = snprintf(buf, 128, "task123 \n");
-	writelog(logfile, buf, len);
+    //writeTime(current_task, "context-switch out2:");
 }
 
 void serialin(USART_TypeDef* uart, unsigned int intr)
 {
+    //writeTime(current_task, "context-switch lin1:");
 	int fd;
 	char c;
 	mkfifo("/dev/tty0/in", 0);
@@ -146,9 +148,7 @@ void serialin(USART_TypeDef* uart, unsigned int intr)
 		}
 	}
 
-	char buf[128];
-	int len = snprintf(buf, 128, "task456 \n");
-	writelog(logfile, buf, len);
+    //writeTime(current_task, "context-switch lin2:");
 }
 
 void greeting()
@@ -738,30 +738,32 @@ void show_xxd(int argc, char *argv[])
 
 void first()
 {
-    writeTime(current_task, "context-switch end:");
-    
 	if (!fork()) setpriority(0, 0), pathserver();
-    writeTime(current_task, "context-switch end:");
+    //writeTime(current_task, "first f1:");
 	if (!fork()) setpriority(0, 0), romdev_driver();
-    writeTime(current_task, "context-switch end:");
+    //writeTime(current_task, "first f2:");
 	if (!fork()) setpriority(0, 0), romfs_server();
-    writeTime(current_task, "context-switch end:");
+    //writeTime(current_task, "first f3:");
 	if (!fork()) setpriority(0, 0), serialout(USART2, USART2_IRQn);
-    writeTime(current_task, "context-switch end:");
+    //writeTime(current_task, "first f4:");
 	if (!fork()) setpriority(0, 0), serialin(USART2, USART2_IRQn);
-    writeTime(current_task, "context-switch end:");
+    //writeTime(current_task, "first f5:");
 	if (!fork()) rs232_xmit_msg_task();
-    writeTime(current_task, "context-switch end:");
+    //writeTime(current_task, "first f6:");
 	if (!fork()) setpriority(0, PRIORITY_DEFAULT - 10), serial_test_task();
-    writeTime(current_task, "context-switch end:");
+    //writeTime(current_task, "first f7:");
 
 	setpriority(0, PRIORITY_LIMIT);
-    writeTime(current_task, "context-switch end:");
+    //writeTime(current_task, "first f8:");
 
 	mount("/dev/rom0", "/", ROMFS_TYPE, 0);
-    writeTime(current_task, "context-switch end:");
+    //writeTime(current_task, "first f9:");
 
-	while(1);
+	//while(1);
+	while(1)
+    {
+        //writeTime(tasks[current_task].stack->r7, "first while:");
+    }
 }
 
 #define INTR_EVENT(intr) (FILE_LIMIT + (intr) + 15) /* see INTR_LIMIT */
@@ -806,7 +808,9 @@ int main()
     logfile = openfile("log", 4);
 
 	SysTick_Config(configCPU_CLOCK_HZ / configTICK_RATE_HZ);
-    writeTime(current_task, "start:");
+    
+    while(get_current() == 0) ;
+    //writeTime(current_task, "rtenv+ start:");
 
 	init_rs232();
 	__enable_irq();
@@ -844,13 +848,14 @@ int main()
 	task_count++;
 
 	while (1) {
-        writeTime(current_task, "context-switch start:");
+        //writeTime(current_task, "main while start:");
 
 		tasks[current_task].stack = activate(tasks[current_task].stack);
 		tasks[current_task].status = TASK_READY;
 		timeup = 0;
 
         //writeTime(current_task, "context-switch end:");
+        //writeTime(tasks[current_task].stack->r7, "r7:");
 
 		switch (tasks[current_task].stack->r7) {
 		case 0x1: /* fork */
@@ -1009,7 +1014,7 @@ int main()
 				if (intr == SysTick_IRQn) {
 					/* Never disable timer. We need it for pre-emption */
 					timeup = 1;
-                    writeTime(current_task, "tick_count++:");
+                    //writeTime(current_task, "tick_count++:");
 					tick_count++;
 					event_monitor_release(&event_monitor, TIME_EVENT);
 				}
@@ -1161,9 +1166,11 @@ int closefile(int fildes)
 	return syscall(0x02, &fildes);
 }
 
-void writeTime(int count, char *s)
+//void writeTime(unsigned int count, char *s)
+void writeTime()
 {
 	char buf[128];
-	int len = snprintf(buf, 128, "%d %s %d\n", count, s, get_time());
+	int len = snprintf(buf, 128, "%d\n", get_time());
+	//int len = snprintf(buf, 128, "%d %s %d\n", count, s, get_time());
 	writelog(logfile, buf, len);
 }
